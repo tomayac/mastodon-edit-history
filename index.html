@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Surgical Precision Edition</title>
+    <title id="pageTitle">Mastodon Edit History</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -139,7 +139,7 @@
         flex-grow: 1;
       }
 
-      /* Square, Borderless, High-Contrast Highlights */
+      /* Square & Borderless Highlights */
       ins {
         background-color: var(--add-word);
         text-decoration: none;
@@ -184,7 +184,7 @@
   <body>
     <div class="container">
       <div class="header-ui">
-        <h2>🐘 MastoDiff</h2>
+        <h2 style="margin: 0">Mastodon Edit History</h2>
         <div class="actions">
           <button
             id="shareBtn"
@@ -205,7 +205,11 @@
         </div>
       </div>
       <div class="input-group">
-        <input type="text" id="urlInput" placeholder="Paste Mastodon URL..." />
+        <input
+          type="text"
+          id="urlInput"
+          placeholder="Paste Mastodon post URL..."
+        />
         <button onclick="handleCompareAction()">Compare</button>
       </div>
       <div id="output"></div>
@@ -232,6 +236,7 @@
 
         if (targetUrl) {
           document.getElementById("urlInput").value = targetUrl;
+          updatePageTitle(targetUrl);
           fetchHistory(targetUrl);
         }
       }
@@ -239,11 +244,19 @@
       function handleCompareAction() {
         const urlValue = document.getElementById("urlInput").value.trim();
         if (!urlValue) return;
+
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.set("toot", urlValue);
         newUrl.hash = "";
         window.history.pushState({}, "", newUrl);
+
+        updatePageTitle(urlValue);
         fetchHistory(urlValue);
+      }
+
+      function updatePageTitle(tootUrl) {
+        const cleanUrl = tootUrl.replace(/^https?:\/\//, "");
+        document.title = `Mastodon Edit History - ${cleanUrl}`;
       }
 
       function decodeAndClean(html) {
@@ -257,13 +270,12 @@
         return txt.value;
       }
 
-      // Surgical Diff using LCS (Longest Common Subsequence) logic
+      // Surgical Diff using LCS logic for perfect alignment
       function getSurgicalDiff(oldStr, newStr) {
         const s1 = [...segmenter.segment(oldStr)].map((s) => s.segment);
         const s2 = [...segmenter.segment(newStr)].map((s) => s.segment);
-
-        const n = s1.length;
-        const m = s2.length;
+        const n = s1.length,
+          m = s2.length;
         const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
 
         for (let i = 1; i <= n; i++) {
@@ -274,10 +286,9 @@
         }
 
         let i = n,
-          j = m;
-        let resOld = [],
+          j = m,
+          resOld = [],
           resNew = [];
-
         while (i > 0 || j > 0) {
           if (i > 0 && j > 0 && s1[i - 1] === s2[j - 1]) {
             const char = escapeHtml(s1[i - 1]);
@@ -293,13 +304,12 @@
             i--;
           }
         }
-
         return { deletion: resOld.join(""), addition: resNew.join("") };
       }
 
       async function fetchHistory(urlInput) {
         const output = document.getElementById("output");
-        output.innerHTML = "<p>Analyzing history...</p>";
+        output.innerHTML = "<p>Crunching history...</p>";
         document.getElementById("copyBtn").style.display = "block";
         if (navigator.share)
           document.getElementById("shareBtn").style.display = "block";
@@ -310,7 +320,8 @@
           const apiBase = `https://${url.hostname}/api/v1/statuses/${id}/history`;
 
           const response = await fetch(apiBase);
-          if (!response.ok) throw new Error("Fetch failed.");
+          if (!response.ok)
+            throw new Error("Could not fetch. The post might be private.");
           const history = await response.json();
           renderHistory(history);
         } catch (e) {
@@ -414,7 +425,7 @@
       async function shareDeeplink() {
         try {
           await navigator.share({
-            title: "MastoDiff",
+            title: "Mastodon Edit History",
             url: window.location.href,
           });
         } catch (err) {}
