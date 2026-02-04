@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Perfect Encoding & Character Diff</title>
+    <title>MastoDiff - Final Character-Perfect Version</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -122,17 +122,18 @@
         flex-shrink: 0;
       }
       .line-content {
-        padding: 4px 10px;
+        padding: 6px 10px;
         white-space: pre-wrap;
         word-break: break-all;
         flex-grow: 1;
+        line-height: 1.6;
       }
 
       ins {
         background-color: var(--add-word);
         text-decoration: none;
         border-radius: 2px;
-        padding: 1px 0;
+        padding: 1px 2px;
         color: #aff5b4;
         font-weight: bold;
         border-bottom: 1px solid var(--add-line);
@@ -141,7 +142,7 @@
         background-color: var(--del-word);
         text-decoration: none;
         border-radius: 2px;
-        padding: 1px 0;
+        padding: 1px 2px;
         color: #ffdcd7;
         border-bottom: 1px solid var(--del-line);
       }
@@ -198,7 +199,6 @@
     </div>
 
     <script>
-      // Use grapheme granularity to catch individual characters like commas
       const segmenter = new Intl.Segmenter(undefined, {
         granularity: "grapheme",
       });
@@ -226,6 +226,19 @@
         setTimeout(() => (btn.textContent = "Copy Link"), 2000);
       }
 
+      function decodeAndClean(html) {
+        // Step 1: Strip Tags
+        const textOnly = html
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/p><p>/gi, "\n\n")
+          .replace(/<[^>]+>/g, "")
+          .trim();
+        // Step 2: Decode entities (I&#39;ve -> I've)
+        const txt = document.createElement("textarea");
+        txt.innerHTML = textOnly;
+        return txt.value;
+      }
+
       async function fetchHistory(urlInput) {
         const output = document.getElementById("output");
         output.innerHTML = "<p>Analyzing history...</p>";
@@ -245,27 +258,15 @@
         }
       }
 
-      function getInlineDiff(oldStr, newStr, isAdd) {
-        // Decode HTML entities before diffing to avoid I&#39;ve issues
-        const decode = (str) => {
-          const txt = document.createElement("textarea");
-          txt.innerHTML = str;
-          return txt.value;
-        };
-
-        const oldT = [...segmenter.segment(decode(oldStr))].map(
-          (s) => s.segment,
-        );
-        const newT = [...segmenter.segment(decode(newStr))].map(
-          (s) => s.segment,
-        );
+      function getInlineDiff(oldClean, newClean, isAdd) {
+        const oldT = [...segmenter.segment(oldClean)].map((s) => s.segment);
+        const newT = [...segmenter.segment(newClean)].map((s) => s.segment);
 
         const target = isAdd ? newT : oldT;
         const sourceSet = new Set(isAdd ? oldT : newT);
 
         return target
           .map((char) => {
-            // Highlight if character is new/removed AND not a standard space
             if (!sourceSet.has(char) && char !== " ") {
               return isAdd
                 ? `<ins>${escapeHtml(char)}</ins>`
@@ -286,19 +287,17 @@
           const card = document.createElement("div");
           card.className = "revision-card";
 
-          const clean = (h) =>
-            h
-              .replace(/<br\s*\/?>/gi, "\n")
-              .replace(/<\/p><p>/gi, "\n\n")
-              .replace(/<[^>]+>/g, "")
-              .trim();
-          const currLines = clean(curr.content).split("\n");
-          const prevLines = prev ? clean(prev.content).split("\n") : [];
+          const currClean = decodeAndClean(curr.content);
+          const prevClean = prev ? decodeAndClean(prev.content) : "";
+
+          const currLines = currClean.split("\n");
+          const prevLines = prevClean.split("\n");
 
           let rowsHtml = "";
           let lineNum = 1;
 
           if (!prev) {
+            // Apply encoding fix even to the original version
             currLines.forEach((l) => {
               rowsHtml += renderRow(lineNum++, "+", escapeHtml(l), "addition");
             });
@@ -310,7 +309,6 @@
               if (pL === cL) {
                 rowsHtml += renderRow(lineNum++, " ", escapeHtml(cL), "");
               } else {
-                // Pass through the decoder inside getInlineDiff to fix encoding
                 if (pL)
                   rowsHtml += renderRow(
                     lineNum++,
