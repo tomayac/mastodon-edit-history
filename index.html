@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Multilingual History Viewer</title>
+    <title>MastoDiff - Precise Punctuation Diff</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -29,7 +29,6 @@
         margin: 0 auto;
       }
 
-      /* Sticky Header */
       .input-group {
         display: flex;
         gap: 10px;
@@ -48,7 +47,6 @@
         border: 1px solid var(--border);
         background: var(--card-bg);
         color: white;
-        font-size: 14px;
       }
       button {
         padding: 10px 20px;
@@ -64,7 +62,6 @@
         border: 1px solid var(--border);
       }
 
-      /* Revision Cards */
       .revision-card {
         border: 1px solid var(--border);
         border-radius: 6px;
@@ -90,7 +87,6 @@
         border: 1px solid #388bfd66;
       }
 
-      /* Diff UI */
       .diff-wrapper {
         overflow-x: auto;
         width: 100%;
@@ -99,7 +95,7 @@
       .diff-table {
         width: 100%;
         border-collapse: collapse;
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-family: "SFMono-Regular", Consolas, monospace;
         font-size: 13px;
         min-width: 650px;
       }
@@ -132,23 +128,25 @@
         flex-grow: 1;
       }
 
-      /* Inline Highlighting */
+      /* Enhanced Highlighting for small characters/punctuation */
       ins {
         background-color: var(--add-word);
         text-decoration: none;
         border-radius: 2px;
-        padding: 1px 0;
+        padding: 1px 1px;
         color: #aff5b4;
+        font-weight: bold;
+        border-bottom: 1px solid var(--add-line);
       }
       del {
         background-color: var(--del-word);
         text-decoration: none;
         border-radius: 2px;
-        padding: 1px 0;
+        padding: 1px 1px;
         color: #ffdcd7;
+        border-bottom: 1px solid var(--del-line);
       }
 
-      /* CW & Media */
       .metadata-diff {
         padding: 10px 15px;
         background: #1c2128;
@@ -158,7 +156,6 @@
       .media-diff {
         padding: 15px;
         border-top: 1px solid var(--border);
-        background: #0d1117;
       }
       .media-grid {
         display: grid;
@@ -177,7 +174,6 @@
         height: 120px;
         object-fit: cover;
         border-radius: 4px;
-        margin-bottom: 8px;
       }
     </style>
   </head>
@@ -198,23 +194,18 @@
           style="display: none"
           onclick="copyDeepLink()"
         >
-          Copy Shareable Link
+          Copy Link
         </button>
       </div>
 
       <div class="input-group">
-        <input
-          type="text"
-          id="urlInput"
-          placeholder="https://mastodon.social/@user/11600..."
-        />
-        <button onclick="handleFetchClick()">Compare Versions</button>
+        <input type="text" id="urlInput" placeholder="Paste Mastodon URL..." />
+        <button onclick="handleFetchClick()">Compare</button>
       </div>
       <div id="output"></div>
     </div>
 
     <script>
-      // Initialize Segmenter for Multilingual Support (CJK etc)
       const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
       window.addEventListener("load", checkHash);
@@ -237,7 +228,7 @@
         navigator.clipboard.writeText(window.location.href);
         const btn = document.getElementById("copyBtn");
         btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = "Copy Shareable Link"), 2000);
+        setTimeout(() => (btn.textContent = "Copy Link"), 2000);
       }
 
       async function fetchHistory(urlInput) {
@@ -251,36 +242,40 @@
           const apiBase = `https://${url.hostname}/api/v1/statuses/${id}/history`;
 
           const response = await fetch(apiBase);
-          if (!response.ok)
-            throw new Error(
-              "Could not fetch history. Ensure the post is public.",
-            );
+          if (!response.ok) throw new Error("Fetch failed.");
           const history = await response.json();
           renderHistory(history);
         } catch (e) {
-          output.innerHTML = `<p style="color:var(--del-line)"><b>Error:</b> ${e.message}</p>`;
+          output.innerHTML = `<p style="color:var(--del-line)">Error: ${e.message}</p>`;
         }
       }
 
       function getInlineDiff(oldStr, newStr, isAdd) {
+        // Tokenize including spaces and punctuation
         const segment = (text) =>
           [...segmenter.segment(text)].map((s) => s.segment);
-        const oldWords = segment(oldStr);
-        const newWords = segment(newStr);
+        const oldTokens = segment(oldStr);
+        const newTokens = segment(newStr);
 
-        const targetWords = isAdd ? newWords : oldWords;
-        const compareTo = isAdd ? oldWords : newWords;
-        const compareSet = new Set(compareTo);
+        const target = isAdd ? newTokens : oldTokens;
+        const source = isAdd ? oldTokens : newTokens;
 
-        return targetWords
-          .map((word) => {
-            if (!word.trim()) return word; // Keep whitespace as-is
-            if (!compareSet.has(word)) {
+        // Use a set of the source tokens for existence checking
+        const sourceSet = new Set(source);
+
+        return target
+          .map((token) => {
+            // We only want to skip highlighting pure whitespace gaps
+            // but we want to catch commas, periods, etc.
+            const isWhitespace = !/[^\s]/.test(token);
+            const existsInOther = sourceSet.has(token);
+
+            if (!existsInOther && !isWhitespace) {
               return isAdd
-                ? `<ins>${escapeHtml(word)}</ins>`
-                : `<del>${escapeHtml(word)}</del>`;
+                ? `<ins>${escapeHtml(token)}</ins>`
+                : `<del>${escapeHtml(token)}</del>`;
             }
-            return escapeHtml(word);
+            return escapeHtml(token);
           })
           .join("");
       }
@@ -292,11 +287,9 @@
         for (let i = history.length - 1; i >= 0; i--) {
           const curr = history[i];
           const prev = i > 0 ? history[i - 1] : null;
-
           const card = document.createElement("div");
           card.className = "revision-card";
 
-          // Clean HTML into Plain Text for diffing
           const clean = (h) =>
             h
               .replace(/<br\s*\/?>/gi, "\n")
@@ -310,7 +303,6 @@
           let lineNum = 1;
 
           if (!prev) {
-            // First post version
             currLines.forEach((l) => {
               rowsHtml += renderRow(lineNum++, "+", escapeHtml(l), "addition");
             });
@@ -340,23 +332,11 @@
             }
           }
 
-          // CW/Spoiler detection
-          let cwHtml = "";
-          const cwChanged = prev && curr.spoiler_text !== prev.spoiler_text;
-          if (curr.spoiler_text || cwChanged) {
-            cwHtml = `
-                    <div class="metadata-diff">
-                        <b style="color:#f0883e">CW:</b> ${escapeHtml(curr.spoiler_text || "[Removed]")}
-                        ${cwChanged ? `<div style="color:#8b949e; font-size:11px">Was: ${escapeHtml(prev.spoiler_text || "[None]")}</div>` : ""}
-                    </div>`;
-          }
-
           card.innerHTML = `
                 <div class="revision-header">
-                    <span class="ver-badge">${i === 0 ? "Original Post" : "Revision " + i}</span>
+                    <span class="ver-badge">${i === 0 ? "Original" : "Revision " + i}</span>
                     <span style="color:#8b949e">${new Date(curr.created_at).toLocaleString()}</span>
                 </div>
-                ${cwHtml}
                 <div class="diff-wrapper"><table class="diff-table">${rowsHtml}</table></div>
                 ${generateMediaHtml(prev ? prev.media_attachments : [], curr.media_attachments)}
             `;
@@ -370,32 +350,19 @@
 
       function generateMediaHtml(oldM, newM) {
         if (!newM.length && !oldM.length) return "";
-        let html =
-          '<div class="media-diff"><strong>Media:</strong><div class="media-grid">';
+        let html = '<div class="media-diff"><div class="media-grid">';
         newM.forEach((m) => {
           const p = oldM.find((x) => x.id === m.id);
           const altDiff =
             p && p.description !== m.description
-              ? `<div style="color:#e3b341; margin-top:4px; border-top:1px dashed #444; padding-top:4px;"><b>Was:</b> ${escapeHtml(p.description || "None")}</div>`
+              ? `<div style="color:#e3b341; font-size:11px; margin-top:5px; border-top:1px dashed #444;">Was: ${escapeHtml(p.description)}</div>`
               : "";
-          html += `
-                <div class="media-item">
-                    <img src="${m.preview_url}" loading="lazy">
-                    <b>Alt:</b> ${escapeHtml(m.description || "None")}
-                    ${altDiff}
-                </div>`;
-        });
-        // Check for removed media
-        oldM.forEach((p) => {
-          if (!newM.find((m) => m.id === p.id)) {
-            html += `<div class="media-item" style="opacity:0.5; border:1px solid var(--del-line)"><img src="${p.preview_url}" style="filter:grayscale(1)"><b style="color:var(--del-line)">[Removed]</b></div>`;
-          }
+          html += `<div class="media-item"><img src="${m.preview_url}"><b>Alt:</b> ${escapeHtml(m.description || "None")}${altDiff}</div>`;
         });
         return html + "</div></div>";
       }
 
       function escapeHtml(str) {
-        if (!str) return "";
         const div = document.createElement("div");
         div.textContent = str;
         return div.innerHTML;
