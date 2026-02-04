@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Perfect Precise Diff</title>
+    <title>MastoDiff - Web Share Enabled</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -29,6 +29,16 @@
         margin: 0 auto;
       }
 
+      .header-ui {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+      }
       .input-group {
         display: flex;
         gap: 10px;
@@ -87,7 +97,6 @@
         border: 1px solid #388bfd66;
       }
 
-      /* NO WRAPPING - SCROLL ONLY */
       .diff-wrapper {
         overflow-x: auto;
         width: 100%;
@@ -96,10 +105,8 @@
       .diff-table {
         width: 100%;
         border-collapse: collapse;
-        font-family:
-          ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        font-family: ui-monospace, SFMono-Regular, monospace;
         font-size: 13px;
-        table-layout: fixed;
       }
       .diff-line {
         display: flex;
@@ -126,13 +133,12 @@
         flex-shrink: 0;
       }
       .line-content {
-        padding: 8px 15px;
+        padding: 10px 15px;
         white-space: pre;
         word-wrap: normal;
         flex-grow: 1;
       }
 
-      /* Highly visible highlights */
       ins {
         background-color: var(--add-word);
         text-decoration: none;
@@ -176,27 +182,30 @@
   </head>
   <body>
     <div class="container">
-      <div
-        style="
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-top: 10px;
-        "
-      >
-        <h2 style="margin: 0">🐘 MastoDiff</h2>
-        <button
-          id="copyBtn"
-          class="secondary"
-          style="display: none"
-          onclick="copyDeepLink()"
-        >
-          Copy Link
-        </button>
+      <div class="header-ui">
+        <h2>🐘 MastoDiff</h2>
+        <div class="actions">
+          <button
+            id="shareBtn"
+            class="secondary"
+            style="display: none"
+            onclick="shareDeeplink()"
+          >
+            Share
+          </button>
+          <button
+            id="copyBtn"
+            class="secondary"
+            style="display: none"
+            onclick="copyDeepLink()"
+          >
+            Copy Link
+          </button>
+        </div>
       </div>
       <div class="input-group">
         <input type="text" id="urlInput" placeholder="Paste Mastodon URL..." />
-        <button onclick="handleFetchClick()">Compare</button>
+        <button onclick="handleCompareAction()">Compare</button>
       </div>
       <div id="output"></div>
     </div>
@@ -206,27 +215,64 @@
         granularity: "grapheme",
       });
 
-      window.addEventListener("load", checkHash);
-      window.addEventListener("hashchange", checkHash);
+      window.addEventListener("DOMContentLoaded", initializeFromUrl);
+      window.addEventListener("popstate", initializeFromUrl);
 
-      function checkHash() {
-        const hash = window.location.hash.substring(1);
-        if (hash.startsWith("http")) {
-          document.getElementById("urlInput").value = hash;
-          fetchHistory(hash);
+      function initializeFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const tootParam = params.get("toot");
+        const hashParam = window.location.hash.substring(1);
+        const targetUrl =
+          tootParam && tootParam.startsWith("http")
+            ? tootParam
+            : hashParam && hashParam.startsWith("http")
+              ? hashParam
+              : null;
+
+        if (targetUrl) {
+          document.getElementById("urlInput").value = targetUrl;
+          fetchHistory(targetUrl);
         }
       }
 
-      function handleFetchClick() {
-        const url = document.getElementById("urlInput").value.trim();
-        if (url) window.location.hash = url;
+      function handleCompareAction() {
+        const urlValue = document.getElementById("urlInput").value.trim();
+        if (!urlValue) return;
+
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.set("toot", urlValue);
+        newUrl.hash = "";
+        window.history.pushState({}, "", newUrl);
+
+        fetchHistory(urlValue);
+      }
+
+      function showActionButtons() {
+        document.getElementById("copyBtn").style.display = "block";
+        // Only show share button if Web Share API is supported
+        if (navigator.share) {
+          document.getElementById("shareBtn").style.display = "block";
+        }
       }
 
       function copyDeepLink() {
         navigator.clipboard.writeText(window.location.href);
         const btn = document.getElementById("copyBtn");
+        const originalText = btn.textContent;
         btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = "Copy Link"), 2000);
+        setTimeout(() => (btn.textContent = originalText), 2000);
+      }
+
+      async function shareDeeplink() {
+        try {
+          await navigator.share({
+            title: "MastoDiff - Mastodon Edit History",
+            text: `Check out the edit history for this post:`,
+            url: window.location.href,
+          });
+        } catch (err) {
+          console.error("Error sharing:", err);
+        }
       }
 
       function decodeAndClean(html) {
@@ -243,7 +289,7 @@
       async function fetchHistory(urlInput) {
         const output = document.getElementById("output");
         output.innerHTML = "<p>Analyzing history...</p>";
-        document.getElementById("copyBtn").style.display = "block";
+        showActionButtons();
 
         try {
           const url = new URL(urlInput);
@@ -255,18 +301,16 @@
           const history = await response.json();
           renderHistory(history);
         } catch (e) {
-          output.innerHTML = `<p style="color:var(--del-line)">Error: ${e.message}</p>`;
+          output.innerHTML = `<p style="color:var(--del-line)"><b>Error:</b> ${e.message}</p>`;
         }
       }
 
-      // A true linear diff that respects order/position
       function getPreciseDiff(oldStr, newStr) {
         const oldArr = [...segmenter.segment(oldStr)].map((s) => s.segment);
         const newArr = [...segmenter.segment(newStr)].map((s) => s.segment);
-
         let i = 0,
-          j = 0;
-        let resOld = "",
+          j = 0,
+          resOld = "",
           resNew = "";
 
         while (i < oldArr.length || j < newArr.length) {
@@ -280,23 +324,14 @@
             i++;
             j++;
           } else {
-            // Lookahead to see if we can find a match again
-            let nextMatchI = oldArr.indexOf(newArr[j], i);
-            let nextMatchJ = newArr.indexOf(oldArr[i], j);
-
-            if (
-              nextMatchI !== -1 &&
-              (nextMatchJ === -1 || nextMatchI - i <= nextMatchJ - j)
-            ) {
-              while (i < nextMatchI) {
-                resOld += `<del>${escapeHtml(oldArr[i])}</del>`;
-                i++;
-              }
-            } else if (nextMatchJ !== -1) {
-              while (j < nextMatchJ) {
-                resNew += `<ins>${escapeHtml(newArr[j])}</ins>`;
-                j++;
-              }
+            let nextI = oldArr.indexOf(newArr[j], i);
+            let nextJ = newArr.indexOf(oldArr[i], j);
+            if (nextI !== -1 && (nextJ === -1 || nextI - i <= nextJ - j)) {
+              while (i < nextI)
+                resOld += `<del>${escapeHtml(oldArr[i++])}</del>`;
+            } else if (nextJ !== -1) {
+              while (j < nextJ)
+                resNew += `<ins>${escapeHtml(newArr[j++])}</ins>`;
             } else {
               if (i < oldArr.length)
                 resOld += `<del>${escapeHtml(oldArr[i++])}</del>`;
@@ -320,7 +355,6 @@
 
           const currClean = decodeAndClean(curr.content);
           const prevClean = prev ? decodeAndClean(prev.content) : "";
-
           const currLines = currClean.split("\n");
           const prevLines = prevClean.split("\n");
 
