@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Precise Punctuation Diff</title>
+    <title>MastoDiff - Perfect Encoding & Character Diff</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -97,7 +97,7 @@
         border-collapse: collapse;
         font-family: "SFMono-Regular", Consolas, monospace;
         font-size: 13px;
-        min-width: 650px;
+        min-width: 800px;
       }
       .diff-line {
         display: flex;
@@ -122,18 +122,17 @@
         flex-shrink: 0;
       }
       .line-content {
-        padding: 2px 10px;
+        padding: 4px 10px;
         white-space: pre-wrap;
         word-break: break-all;
         flex-grow: 1;
       }
 
-      /* Enhanced Highlighting for small characters/punctuation */
       ins {
         background-color: var(--add-word);
         text-decoration: none;
         border-radius: 2px;
-        padding: 1px 1px;
+        padding: 1px 0;
         color: #aff5b4;
         font-weight: bold;
         border-bottom: 1px solid var(--add-line);
@@ -142,17 +141,11 @@
         background-color: var(--del-word);
         text-decoration: none;
         border-radius: 2px;
-        padding: 1px 1px;
+        padding: 1px 0;
         color: #ffdcd7;
         border-bottom: 1px solid var(--del-line);
       }
 
-      .metadata-diff {
-        padding: 10px 15px;
-        background: #1c2128;
-        border-bottom: 1px solid var(--border);
-        font-size: 13px;
-      }
       .media-diff {
         padding: 15px;
         border-top: 1px solid var(--border);
@@ -167,11 +160,11 @@
         border-radius: 6px;
         padding: 8px;
         background: var(--card-bg);
-        font-size: 12px;
+        font-size: 11px;
       }
       .media-item img {
         width: 100%;
-        height: 120px;
+        height: 100px;
         object-fit: cover;
         border-radius: 4px;
       }
@@ -197,7 +190,6 @@
           Copy Link
         </button>
       </div>
-
       <div class="input-group">
         <input type="text" id="urlInput" placeholder="Paste Mastodon URL..." />
         <button onclick="handleFetchClick()">Compare</button>
@@ -206,7 +198,10 @@
     </div>
 
     <script>
-      const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+      // Use grapheme granularity to catch individual characters like commas
+      const segmenter = new Intl.Segmenter(undefined, {
+        granularity: "grapheme",
+      });
 
       window.addEventListener("load", checkHash);
       window.addEventListener("hashchange", checkHash);
@@ -233,7 +228,7 @@
 
       async function fetchHistory(urlInput) {
         const output = document.getElementById("output");
-        output.innerHTML = "<p>Analyzing revisions...</p>";
+        output.innerHTML = "<p>Analyzing history...</p>";
         document.getElementById("copyBtn").style.display = "block";
 
         try {
@@ -251,31 +246,32 @@
       }
 
       function getInlineDiff(oldStr, newStr, isAdd) {
-        // Tokenize including spaces and punctuation
-        const segment = (text) =>
-          [...segmenter.segment(text)].map((s) => s.segment);
-        const oldTokens = segment(oldStr);
-        const newTokens = segment(newStr);
+        // Decode HTML entities before diffing to avoid I&#39;ve issues
+        const decode = (str) => {
+          const txt = document.createElement("textarea");
+          txt.innerHTML = str;
+          return txt.value;
+        };
 
-        const target = isAdd ? newTokens : oldTokens;
-        const source = isAdd ? oldTokens : newTokens;
+        const oldT = [...segmenter.segment(decode(oldStr))].map(
+          (s) => s.segment,
+        );
+        const newT = [...segmenter.segment(decode(newStr))].map(
+          (s) => s.segment,
+        );
 
-        // Use a set of the source tokens for existence checking
-        const sourceSet = new Set(source);
+        const target = isAdd ? newT : oldT;
+        const sourceSet = new Set(isAdd ? oldT : newT);
 
         return target
-          .map((token) => {
-            // We only want to skip highlighting pure whitespace gaps
-            // but we want to catch commas, periods, etc.
-            const isWhitespace = !/[^\s]/.test(token);
-            const existsInOther = sourceSet.has(token);
-
-            if (!existsInOther && !isWhitespace) {
+          .map((char) => {
+            // Highlight if character is new/removed AND not a standard space
+            if (!sourceSet.has(char) && char !== " ") {
               return isAdd
-                ? `<ins>${escapeHtml(token)}</ins>`
-                : `<del>${escapeHtml(token)}</del>`;
+                ? `<ins>${escapeHtml(char)}</ins>`
+                : `<del>${escapeHtml(char)}</del>`;
             }
-            return escapeHtml(token);
+            return escapeHtml(char);
           })
           .join("");
       }
@@ -314,6 +310,7 @@
               if (pL === cL) {
                 rowsHtml += renderRow(lineNum++, " ", escapeHtml(cL), "");
               } else {
+                // Pass through the decoder inside getInlineDiff to fix encoding
                 if (pL)
                   rowsHtml += renderRow(
                     lineNum++,
@@ -355,7 +352,7 @@
           const p = oldM.find((x) => x.id === m.id);
           const altDiff =
             p && p.description !== m.description
-              ? `<div style="color:#e3b341; font-size:11px; margin-top:5px; border-top:1px dashed #444;">Was: ${escapeHtml(p.description)}</div>`
+              ? `<div style="color:#e3b341; margin-top:4px; border-top:1px dashed #444;">Was: ${escapeHtml(p.description)}</div>`
               : "";
           html += `<div class="media-item"><img src="${m.preview_url}"><b>Alt:</b> ${escapeHtml(m.description || "None")}${altDiff}</div>`;
         });
@@ -363,6 +360,7 @@
       }
 
       function escapeHtml(str) {
+        if (!str) return "";
         const div = document.createElement("div");
         div.textContent = str;
         return div.innerHTML;
