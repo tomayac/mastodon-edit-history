@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Full History Viewer</title>
+    <title>MastoDiff - Deep Linkable History</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -26,6 +26,8 @@
         max-width: 1000px;
         margin: 0 auto;
       }
+
+      /* Sticky Header */
       .input-group {
         display: flex;
         gap: 10px;
@@ -33,8 +35,9 @@
         position: sticky;
         top: 0;
         background: var(--bg);
-        padding: 10px 0;
+        padding: 15px 0;
         z-index: 100;
+        border-bottom: 1px solid var(--border);
       }
       input {
         flex: 1;
@@ -43,9 +46,10 @@
         border: 1px solid var(--border);
         background: var(--card-bg);
         color: white;
+        font-size: 14px;
       }
       button {
-        padding: 10px 25px;
+        padding: 10px 20px;
         border-radius: 6px;
         border: none;
         background: #238636;
@@ -53,12 +57,17 @@
         cursor: pointer;
         font-weight: bold;
       }
+      button.secondary {
+        background: #30363d;
+        border: 1px solid var(--border);
+      }
 
       .revision-card {
         border: 1px solid var(--border);
         border-radius: 6px;
         margin-bottom: 40px;
         background: var(--card-bg);
+        overflow: hidden;
       }
       .revision-header {
         padding: 12px 15px;
@@ -67,6 +76,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        background: #1f242c;
       }
       .ver-badge {
         background: #388bfd3d;
@@ -77,7 +87,7 @@
         border: 1px solid #388bfd66;
       }
 
-      /* Scrolling Diff View */
+      /* Scrollable Diff View */
       .diff-wrapper {
         overflow-x: auto;
         width: 100%;
@@ -88,19 +98,20 @@
         border-collapse: collapse;
         font-family: "SFMono-Regular", Consolas, monospace;
         font-size: 13px;
-        min-width: 600px;
+        min-width: 650px;
       }
       .diff-line {
         display: flex;
         width: 100%;
+        border-left: 4px solid transparent;
       }
       .diff-line.addition {
         background-color: var(--add-bg);
-        border-left: 4px solid var(--add-line);
+        border-left-color: var(--add-line);
       }
       .diff-line.deletion {
         background-color: var(--del-bg);
-        border-left: 4px solid var(--del-line);
+        border-left-color: var(--del-line);
       }
       .line-num {
         width: 50px;
@@ -112,15 +123,30 @@
         flex-shrink: 0;
       }
       .line-content {
-        padding-left: 10px;
+        padding: 2px 10px;
         white-space: pre;
         word-wrap: normal;
         flex-grow: 1;
       }
 
+      /* Metadata / CW styling */
+      .metadata-diff {
+        padding: 10px 15px;
+        background: #1c2128;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+      }
+      .cw-label {
+        color: #f0883e;
+        font-weight: bold;
+        margin-right: 8px;
+      }
+
+      /* Media */
       .media-diff {
         padding: 15px;
         border-top: 1px solid var(--border);
+        background: #0d1117;
       }
       .media-grid {
         display: grid;
@@ -132,23 +158,21 @@
         border: 1px solid var(--border);
         border-radius: 6px;
         padding: 8px;
-        background: #0d1117;
+        background: var(--card-bg);
       }
       .media-item img {
         width: 100%;
         height: 120px;
         object-fit: cover;
         border-radius: 4px;
-        margin-bottom: 8px;
       }
       .alt-text {
         font-size: 12px;
-        display: block;
-        line-height: 1.4;
+        margin-top: 8px;
       }
       .alt-changed {
         color: #e3b341;
-        border-top: 1px dashed #e3b341;
+        border-top: 1px dashed #443d2c;
         margin-top: 5px;
         padding-top: 5px;
       }
@@ -156,25 +180,66 @@
   </head>
   <body>
     <div class="container">
-      <h2>🐘 MastoDiff</h2>
+      <div
+        style="
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        "
+      >
+        <h2>🐘 MastoDiff</h2>
+        <button
+          id="copyBtn"
+          class="secondary"
+          style="display: none"
+          onclick="copyDeepLink()"
+        >
+          Copy Shareable Link
+        </button>
+      </div>
+
       <div class="input-group">
         <input
           type="text"
           id="urlInput"
-          placeholder="Paste Mastodon post URL here..."
+          placeholder="Paste Mastodon post URL (e.g. https://mastodon.social/@user/123...)"
         />
-        <button onclick="fetchHistory()">Fetch Full History</button>
+        <button onclick="handleFetchClick()">Compare Versions</button>
       </div>
       <div id="output"></div>
     </div>
 
     <script>
-      async function fetchHistory() {
-        const urlInput = document.getElementById("urlInput").value.trim();
-        const output = document.getElementById("output");
-        if (!urlInput) return;
+      // 1. Listen for page load and hash changes for deep linking
+      window.addEventListener("load", checkHash);
+      window.addEventListener("hashchange", checkHash);
 
-        output.innerHTML = "<p>Loading all versions...</p>";
+      function checkHash() {
+        const hash = window.location.hash.substring(1);
+        if (hash && hash.startsWith("http")) {
+          document.getElementById("urlInput").value = hash;
+          fetchHistory(hash);
+        }
+      }
+
+      function handleFetchClick() {
+        const url = document.getElementById("urlInput").value.trim();
+        if (url) {
+          window.location.hash = url; // This triggers hashchange -> fetchHistory
+        }
+      }
+
+      function copyDeepLink() {
+        navigator.clipboard.writeText(window.location.href);
+        const btn = document.getElementById("copyBtn");
+        btn.textContent = "Copied!";
+        setTimeout(() => (btn.textContent = "Copy Shareable Link"), 2000);
+      }
+
+      async function fetchHistory(urlInput) {
+        const output = document.getElementById("output");
+        output.innerHTML = "<p>Crunching history data...</p>";
+        document.getElementById("copyBtn").style.display = "block";
 
         try {
           const url = new URL(urlInput);
@@ -183,7 +248,9 @@
 
           const response = await fetch(apiBase);
           if (!response.ok)
-            throw new Error("Post not found or API restricted.");
+            throw new Error(
+              "Could not access API. Check if the post is private or the instance blocks public API access.",
+            );
           const history = await response.json();
 
           renderAllDiffs(history);
@@ -196,33 +263,44 @@
         const output = document.getElementById("output");
         output.innerHTML = "";
 
-        // Iterate backwards from the latest edit down to the first edit
         for (let i = history.length - 1; i >= 0; i--) {
           const current = history[i];
-          const previous = history[i - 1]; // Undefined for index 0
+          const previous = i > 0 ? history[i - 1] : null;
 
           const card = document.createElement("div");
           card.className = "revision-card";
 
           const date = new Date(current.created_at).toLocaleString();
-          const versionTitle = i === 0 ? "Original Post" : `Revision ${i}`;
+          const versionLabel = i === 0 ? "Original Post" : `Revision ${i}`;
 
-          let contentHtml = "";
-          if (i === 0) {
-            // First version: Just show the text, nothing to diff against
-            contentHtml = `<div class="diff-wrapper">${generateDiffHtml("", current.content, true)}</div>`;
-          } else {
-            // Show diff between this and previous
-            contentHtml = `<div class="diff-wrapper">${generateDiffHtml(previous.content, current.content)}</div>`;
+          // Check for CW/Spoiler Text changes
+          let metadataHtml = "";
+          const cwChanged =
+            previous && current.spoiler_text !== previous.spoiler_text;
+          if (current.spoiler_text || cwChanged) {
+            metadataHtml = `
+                    <div class="metadata-diff">
+                        <span class="cw-label">CW:</span> 
+                        <span>${escapeHtml(current.spoiler_text || "(Removed)")}</span>
+                        ${cwChanged ? `<div style="color:#8b949e; font-size:11px;">Was: ${escapeHtml(previous.spoiler_text || "(None)")}</div>` : ""}
+                    </div>`;
           }
+
+          const diffContent =
+            i === 0
+              ? generateDiffHtml("", current.content, true)
+              : generateDiffHtml(previous.content, current.content);
 
           card.innerHTML = `
                 <div class="revision-header">
-                    <span class="ver-badge">${versionTitle}</span>
+                    <span class="ver-badge">${versionLabel}</span>
                     <span style="color: #8b949e">${date}</span>
                 </div>
-                ${contentHtml}
-                ${i === 0 ? generateMediaDiffHtml([], current.media_attachments) : generateMediaDiffHtml(previous.media_attachments, current.media_attachments)}
+                ${metadataHtml}
+                <div class="diff-wrapper">
+                    <table class="diff-table">${diffContent}</table>
+                </div>
+                ${generateMediaDiffHtml(previous ? previous.media_attachments : [], current.media_attachments)}
             `;
           output.appendChild(card);
         }
@@ -238,9 +316,7 @@
         const oldLines = isInitial ? [] : clean(oldHtml).split("\n");
         const newLines = clean(newHtml).split("\n");
 
-        let html = '<table class="diff-table">';
-
-        // Very basic diffing logic
+        let html = "";
         let i = 0,
           j = 0;
         let lineCounter = 1;
@@ -250,6 +326,7 @@
             html += renderRow(idx + 1, "+", line, "addition");
           });
         } else {
+          // Basic line-by-line comparison
           while (i < oldLines.length || j < newLines.length) {
             if (
               i < oldLines.length &&
@@ -259,25 +336,22 @@
               html += renderRow(lineCounter++, " ", oldLines[i], "");
               i++;
               j++;
+            } else if (
+              i < oldLines.length &&
+              (j >= newLines.length || !newLines.slice(j).includes(oldLines[i]))
+            ) {
+              html += renderRow(lineCounter++, "-", oldLines[i], "deletion");
+              i++;
+            } else if (j < newLines.length) {
+              html += renderRow(lineCounter++, "+", newLines[j], "addition");
+              j++;
             } else {
-              if (
-                i < oldLines.length &&
-                (j >= newLines.length ||
-                  !newLines.slice(j).includes(oldLines[i]))
-              ) {
-                html += renderRow(lineCounter++, "-", oldLines[i], "deletion");
-                i++;
-              } else if (j < newLines.length) {
-                html += renderRow(lineCounter++, "+", newLines[j], "addition");
-                j++;
-              } else {
-                i++;
-                j++;
-              }
+              i++;
+              j++;
             }
           }
         }
-        return html + "</table>";
+        return html;
       }
 
       function renderRow(num, symbol, text, type) {
@@ -292,7 +366,7 @@
         if (!newMedia.length && !oldMedia.length) return "";
 
         let html =
-          '<div class="media-diff"><strong>Media Attachments:</strong><div class="media-grid">';
+          '<div class="media-diff"><strong>Media & Alt Text:</strong><div class="media-grid">';
 
         newMedia.forEach((m) => {
           const prev = oldMedia.find((p) => p.id === m.id);
@@ -302,19 +376,18 @@
                 <div class="media-item">
                     <img src="${m.preview_url}" loading="lazy">
                     <div class="alt-text">
-                        <b style="color:#79c0ff">Current Alt:</b> ${escapeHtml(m.description || "(No alt text set)")}
-                        ${altChanged ? `<div class="alt-changed"><b style="color:#f0883e">Previous Alt:</b> ${escapeHtml(prev.description || "(None)")}</div>` : ""}
+                        <b style="color:#79c0ff">Alt:</b> ${escapeHtml(m.description || "(Missing)")}
+                        ${altChanged ? `<div class="alt-changed"><b style="color:#f0883e">Previous:</b> ${escapeHtml(prev.description || "(None)")}</div>` : ""}
                     </div>
                 </div>`;
         });
 
-        // Show deletions
         oldMedia.forEach((p) => {
           if (!newMedia.find((m) => m.id === p.id)) {
             html += `
-                    <div class="media-item" style="opacity: 0.6; border: 1px solid var(--del-line)">
+                    <div class="media-item" style="opacity: 0.5; border: 1px solid var(--del-line)">
                         <img src="${p.preview_url}" style="filter: grayscale(1)">
-                        <div class="alt-text"><b style="color:var(--del-line)">[Removed Attachment]</b></div>
+                        <div class="alt-text" style="color:var(--del-line)">[Removed Attachment]</div>
                     </div>`;
           }
         });
@@ -323,6 +396,7 @@
       }
 
       function escapeHtml(str) {
+        if (!str) return "";
         const div = document.createElement("div");
         div.textContent = str;
         return div.innerHTML;
