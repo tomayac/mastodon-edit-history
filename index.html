@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MastoDiff - Edit History Viewer</title>
+    <style>
+      :root {
+        --bg: #1f2328;
+        --text: #e6edf3;
+        --border: #30363d;
+        --add-bg: #2ea44f26;
+        --add-line: #3fb950;
+        --del-bg: #da363326;
+        --del-line: #f85149;
+        --header-bg: #161b22;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+          sans-serif;
+        background: #0d1117;
+        color: var(--text);
+        line-height: 1.5;
+        padding: 20px;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      .input-group {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      input {
+        flex: 1;
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--header-bg);
+        color: white;
+      }
+      button {
+        padding: 10px 20px;
+        border-radius: 6px;
+        border: none;
+        background: #238636;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      button:hover {
+        background: #2ea043;
+      }
+
+      .revision-card {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 30px;
+        overflow: hidden;
+        background: var(--header-bg);
+      }
+      .revision-header {
+        padding: 10px 15px;
+        background: var(--header-bg);
+        border-bottom: 1px solid var(--border);
+        font-size: 0.9em;
+        color: #8b949e;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .diff-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family:
+          ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 12px;
+      }
+      .diff-line {
+        display: flex;
+        border-bottom: 1px solid transparent;
+      }
+      .diff-line.addition {
+        background-color: var(--add-bg);
+      }
+      .diff-line.deletion {
+        background-color: var(--del-bg);
+      }
+      .line-num {
+        width: 40px;
+        text-align: right;
+        padding-right: 10px;
+        color: #484f58;
+        user-select: none;
+        border-right: 1px solid var(--border);
+      }
+      .line-content {
+        padding-left: 10px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .prefix {
+        width: 20px;
+        display: inline-block;
+        text-align: center;
+      }
+
+      .media-diff {
+        padding: 15px;
+        border-top: 1px solid var(--border);
+        background: #0d1117;
+      }
+      .media-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .media-item {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 5px;
+        font-size: 11px;
+        position: relative;
+      }
+      .media-item img {
+        width: 100%;
+        height: 100px;
+        object-fit: cover;
+        border-radius: 2px;
+      }
+      .alt-tag {
+        display: block;
+        margin-top: 5px;
+        padding: 2px 4px;
+        border-radius: 3px;
+      }
+      .alt-changed {
+        background: #bb80094d;
+        border: 1px solid #d29922;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>🐘 MastoDiff</h2>
+      <p>
+        View the edit history of any Mastodon post with a side-by-side/diff
+        view.
+      </p>
+      <div class="input-group">
+        <input
+          type="text"
+          id="urlInput"
+          placeholder="https://mastodon.social/@user/123456789"
+        />
+        <button onclick="fetchHistory()">Compare History</button>
+      </div>
+      <div id="output"></div>
+    </div>
+
+    <script>
+      async function fetchHistory() {
+        const urlInput = document.getElementById("urlInput").value.trim();
+        const output = document.getElementById("output");
+        output.innerHTML = "Fetching history...";
+
+        try {
+          // Parse URL: https://[instance]/@[user]/[id]
+          const url = new URL(urlInput);
+          const parts = url.pathname.split("/");
+          const id = parts.pop() || parts.pop(); // Handle trailing slashes
+          const apiBase = `https://${url.hostname}/api/v1/statuses/${id}/history`;
+
+          const response = await fetch(apiBase);
+          if (!response.ok)
+            throw new Error("Could not fetch history. Is the post public?");
+          const history = await response.json();
+
+          renderDiffs(history);
+        } catch (e) {
+          output.innerHTML = `<p style="color:var(--del-line)">Error: ${e.message}</p>`;
+        }
+      }
+
+      function renderDiffs(history) {
+        const output = document.getElementById("output");
+        output.innerHTML = "";
+
+        // History comes in chronological order usually, let's reverse to see newest first
+        // and compare index i with i-1
+        for (let i = history.length - 1; i > 0; i--) {
+          const current = history[i];
+          const previous = history[i - 1];
+
+          const card = document.createElement("div");
+          card.className = "revision-card";
+
+          const date = new Date(current.created_at).toLocaleString();
+          card.innerHTML = `
+                <div class="revision-header">
+                    <span>Revision ${i} &larr; ${i - 1}</span>
+                    <span>${date}</span>
+                </div>
+                <div class="diff-body">
+                    ${generateDiffHtml(previous.content, current.content)}
+                </div>
+                ${generateMediaDiffHtml(previous.media_attachments, current.media_attachments)}
+            `;
+          output.appendChild(card);
+        }
+
+        if (history.length <= 1) {
+          output.innerHTML =
+            "<p>This post has no edit history (only the original version exists).</p>";
+        }
+      }
+
+      // A very simple Myers-lite line differ
+      function generateDiffHtml(oldHtml, newHtml) {
+        // Strip HTML tags for clean text diffing, but keep line breaks
+        const clean = (html) =>
+          html
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<\/p><p>/gi, "\n\n")
+            .replace(/<[^>]+>/g, "")
+            .trim();
+        const oldLines = clean(oldHtml).split("\n");
+        const newLines = clean(newHtml).split("\n");
+
+        let html = '<div class="diff-table">';
+
+        // Simple 1:1 comparison for demo purposes (real diffing algorithms are complex)
+        // This handles basic line additions/removals well enough for toots
+        let i = 0,
+          j = 0;
+        while (i < oldLines.length || j < newLines.length) {
+          if (oldLines[i] === newLines[j]) {
+            if (oldLines[i] !== undefined) {
+              html += renderLine(i + 1, " ", oldLines[i], "");
+            }
+            i++;
+            j++;
+          } else {
+            // Check if it's a deletion or addition
+            if (i < oldLines.length && !newLines.includes(oldLines[i])) {
+              html += renderLine(i + 1, "-", oldLines[i], "deletion");
+              i++;
+            } else if (j < newLines.length) {
+              html += renderLine(j + 1, "+", newLines[j], "addition");
+              j++;
+            } else {
+              i++;
+              j++;
+            }
+          }
+        }
+        return html + "</div>";
+      }
+
+      function renderLine(num, prefix, content, type) {
+        return `
+            <div class="diff-line ${type}">
+                <div class="line-num">${num}</div>
+                <div class="line-content"><span class="prefix">${prefix}</span>${escapeHtml(content)}</div>
+            </div>`;
+      }
+
+      function generateMediaDiffHtml(oldMedia, newMedia) {
+        if (!newMedia.length && !oldMedia.length) return "";
+
+        let html =
+          '<div class="media-diff"><strong>Media & Alt Text Changes:</strong><div class="media-grid">';
+
+        newMedia.forEach((m) => {
+          const prev = oldMedia.find((p) => p.id === m.id);
+          const altChanged = prev && prev.description !== m.description;
+          const isNew = !prev;
+
+          html += `
+                <div class="media-item">
+                    <img src="${m.preview_url}" alt="Attachment">
+                    <span class="alt-tag ${altChanged ? "alt-changed" : ""}">
+                        ${isNew ? "[New Attachment]" : ""}
+                        <b>Alt:</b> ${escapeHtml(m.description || "(None)")}
+                        ${altChanged ? `<br><small style="color:#d29922">Was: ${escapeHtml(prev.description || "(None)")}</small>` : ""}
+                    </span>
+                </div>`;
+        });
+
+        // Check for removed media
+        oldMedia.forEach((p) => {
+          if (!newMedia.find((m) => m.id === p.id)) {
+            html += `
+                    <div class="media-item" style="opacity: 0.5; border-color: var(--del-line)">
+                        <img src="${p.preview_url}" style="filter: grayscale(1)">
+                        <span class="alt-tag">[Removed]</span>
+                    </div>`;
+          }
+        });
+
+        return html + "</div></div>";
+      }
+
+      function escapeHtml(text) {
+        if (!text) return "";
+        return text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+    </script>
+  </body>
+</html>
