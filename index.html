@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MastoDiff - Web Share Enabled</title>
+    <title>MastoDiff - Surgical Precision Edition</title>
     <style>
       :root {
         --bg: #0d1117;
@@ -12,10 +12,10 @@
         --border: #30363d;
         --add-bg: #2ea44f26;
         --add-line: #3fb950;
-        --add-word: #2ea44fcc;
+        --add-word: #238636;
         --del-bg: #da363326;
         --del-line: #f85149;
-        --del-word: #da3633cc;
+        --del-word: #da3633;
       }
       body {
         font-family: -apple-system, sans-serif;
@@ -139,20 +139,24 @@
         flex-grow: 1;
       }
 
-      ins { 
-          background-color: var(--add-word); 
-          text-decoration: none; 
-          border-radius: 2px; 
-          color: #ffffff; 
-          padding: 2px 0;
+      /* Square, Borderless, High-Contrast Highlights */
+      ins {
+        background-color: var(--add-word);
+        text-decoration: none;
+        color: #ffffff;
+        padding: 2px 0;
+        border-radius: 0;
+        border: none;
       }
-      del { 
-          background-color: var(--del-word); 
-          text-decoration: none; 
-          border-radius: 2px; 
-          color: #ffffff; 
-          padding: 2px 0;
+      del {
+        background-color: var(--del-word);
+        text-decoration: none;
+        color: #ffffff;
+        padding: 2px 0;
+        border-radius: 0;
+        border: none;
       }
+
       .media-diff {
         padding: 15px;
         border-top: 1px solid var(--border);
@@ -235,41 +239,11 @@
       function handleCompareAction() {
         const urlValue = document.getElementById("urlInput").value.trim();
         if (!urlValue) return;
-
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.set("toot", urlValue);
         newUrl.hash = "";
         window.history.pushState({}, "", newUrl);
-
         fetchHistory(urlValue);
-      }
-
-      function showActionButtons() {
-        document.getElementById("copyBtn").style.display = "block";
-        // Only show share button if Web Share API is supported
-        if (navigator.share) {
-          document.getElementById("shareBtn").style.display = "block";
-        }
-      }
-
-      function copyDeepLink() {
-        navigator.clipboard.writeText(window.location.href);
-        const btn = document.getElementById("copyBtn");
-        const originalText = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = originalText), 2000);
-      }
-
-      async function shareDeeplink() {
-        try {
-          await navigator.share({
-            title: "MastoDiff - Mastodon Edit History",
-            text: `Check out the edit history for this post:`,
-            url: window.location.href,
-          });
-        } catch (err) {
-          console.error("Error sharing:", err);
-        }
       }
 
       function decodeAndClean(html) {
@@ -283,10 +257,52 @@
         return txt.value;
       }
 
+      // Surgical Diff using LCS (Longest Common Subsequence) logic
+      function getSurgicalDiff(oldStr, newStr) {
+        const s1 = [...segmenter.segment(oldStr)].map((s) => s.segment);
+        const s2 = [...segmenter.segment(newStr)].map((s) => s.segment);
+
+        const n = s1.length;
+        const m = s2.length;
+        const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+
+        for (let i = 1; i <= n; i++) {
+          for (let j = 1; j <= m; j++) {
+            if (s1[i - 1] === s2[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+            else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+
+        let i = n,
+          j = m;
+        let resOld = [],
+          resNew = [];
+
+        while (i > 0 || j > 0) {
+          if (i > 0 && j > 0 && s1[i - 1] === s2[j - 1]) {
+            const char = escapeHtml(s1[i - 1]);
+            resOld.unshift(char);
+            resNew.unshift(char);
+            i--;
+            j--;
+          } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            resNew.unshift(`<ins>${escapeHtml(s2[j - 1])}</ins>`);
+            j--;
+          } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+            resOld.unshift(`<del>${escapeHtml(s1[i - 1])}</del>`);
+            i--;
+          }
+        }
+
+        return { deletion: resOld.join(""), addition: resNew.join("") };
+      }
+
       async function fetchHistory(urlInput) {
         const output = document.getElementById("output");
         output.innerHTML = "<p>Analyzing history...</p>";
-        showActionButtons();
+        document.getElementById("copyBtn").style.display = "block";
+        if (navigator.share)
+          document.getElementById("shareBtn").style.display = "block";
 
         try {
           const url = new URL(urlInput);
@@ -300,44 +316,6 @@
         } catch (e) {
           output.innerHTML = `<p style="color:var(--del-line)"><b>Error:</b> ${e.message}</p>`;
         }
-      }
-
-      function getPreciseDiff(oldStr, newStr) {
-        const oldArr = [...segmenter.segment(oldStr)].map((s) => s.segment);
-        const newArr = [...segmenter.segment(newStr)].map((s) => s.segment);
-        let i = 0,
-          j = 0,
-          resOld = "",
-          resNew = "";
-
-        while (i < oldArr.length || j < newArr.length) {
-          if (
-            i < oldArr.length &&
-            j < newArr.length &&
-            oldArr[i] === newArr[j]
-          ) {
-            resOld += escapeHtml(oldArr[i]);
-            resNew += escapeHtml(newArr[j]);
-            i++;
-            j++;
-          } else {
-            let nextI = oldArr.indexOf(newArr[j], i);
-            let nextJ = newArr.indexOf(oldArr[i], j);
-            if (nextI !== -1 && (nextJ === -1 || nextI - i <= nextJ - j)) {
-              while (i < nextI)
-                resOld += `<del>${escapeHtml(oldArr[i++])}</del>`;
-            } else if (nextJ !== -1) {
-              while (j < nextJ)
-                resNew += `<ins>${escapeHtml(newArr[j++])}</ins>`;
-            } else {
-              if (i < oldArr.length)
-                resOld += `<del>${escapeHtml(oldArr[i++])}</del>`;
-              if (j < newArr.length)
-                resNew += `<ins>${escapeHtml(newArr[j++])}</ins>`;
-            }
-          }
-        }
-        return { deletion: resOld, addition: resNew };
       }
 
       function renderHistory(history) {
@@ -370,7 +348,7 @@
               if (pL === cL) {
                 rowsHtml += renderRow(lineNum++, " ", escapeHtml(cL), "");
               } else {
-                const diff = getPreciseDiff(pL, cL);
+                const diff = getSurgicalDiff(pL, cL);
                 if (pL)
                   rowsHtml += renderRow(
                     lineNum,
@@ -424,6 +402,22 @@
         const div = document.createElement("div");
         div.textContent = str;
         return div.innerHTML;
+      }
+
+      function copyDeepLink() {
+        navigator.clipboard.writeText(window.location.href);
+        const btn = document.getElementById("copyBtn");
+        btn.textContent = "Copied!";
+        setTimeout(() => (btn.textContent = "Copy Link"), 2000);
+      }
+
+      async function shareDeeplink() {
+        try {
+          await navigator.share({
+            title: "MastoDiff",
+            url: window.location.href,
+          });
+        } catch (err) {}
       }
     </script>
   </body>
